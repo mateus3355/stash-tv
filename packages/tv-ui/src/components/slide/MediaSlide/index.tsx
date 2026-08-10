@@ -39,6 +39,10 @@ import { ConfigurationContext } from "stash-ui/dist/src/hooks/Config";
 import { useFirstMountState } from "react-use";
 import { MediaItemStateContextProvider } from "../../../store/mediaItemState";
 import { useDeleteMediaItemDialog } from "../../../hooks/useDeleteMediaItemDialog";
+import { useGlobalState } from "../../../store/globalState";
+import { useMediaItemTags } from "../../../hooks/useMediaItemTags";
+import { EditTagSelectionForm } from "../../EditTagSelectionForm";
+import { Modal } from "../../containers/Modal";
 
 videojs.registerPlugin('styledBigPlayButton', styledBigPlayButton);
 
@@ -590,27 +594,56 @@ const MediaSlide: React.FC<MediaSlideProps> = (props) => {
     if (!isCurrentVideo) setSceneInfoOpen(false);
   }, [isCurrentVideo]);
 
-  /* ---------------------------- Delete shortcut ------------------------------ */
+  /* ---------------------------- Single-key shortcuts -------------------------- */
 
   const { open: openDeleteConfirmation, dialog: deleteConfirmationDialog } = useDeleteMediaItemDialog(props.mediaItem);
+  const { set: setGlobalState } = useGlobalState();
+  const { tags: mediaItemTags, setTags: setMediaItemTags } = useMediaItemTags(props.mediaItem);
+  const [showTagEditor, setShowTagEditor] = useState(false);
 
   useEffect(() => {
     if (!isCurrentVideo) return;
     const handleKeyDown = (e: KeyboardEvent) => {
       if (
-        e.key !== "d"
-        || e.ctrlKey || e.metaKey || e.altKey || e.shiftKey
+        e.ctrlKey || e.metaKey || e.altKey || e.shiftKey
         || e.target instanceof HTMLInputElement
         || e.target instanceof HTMLTextAreaElement
         || (e.target instanceof HTMLElement && e.target.getAttribute("role") === "slider")
       ) return;
-      openDeleteConfirmation();
+      switch (e.key) {
+        case "d":
+          openDeleteConfirmation();
+          break;
+        case "i":
+          setSceneInfoOpen(!sceneInfoOpen);
+          break;
+        case "e":
+          setShowTagEditor(true);
+          break;
+        case "m":
+          setTvConfig("volume", (prev) => prev ? 0 : 1);
+          break;
+        case "o":
+          setTvConfig("forceLandscape", (prev) => !prev);
+          break;
+        case "l":
+          setTvConfig("looping", (prev) => !prev);
+          break;
+        case "s":
+          setTvConfig("showSubtitles", (prev) => !prev);
+          break;
+        case "f":
+          setGlobalState("fullscreen", (prev) => !prev);
+          break;
+        default:
+          return;
+      }
     }
     window.addEventListener("keydown", handleKeyDown);
     return () => {
       window.removeEventListener("keydown", handleKeyDown);
     };
-  }, [isCurrentVideo, openDeleteConfirmation]);
+  }, [isCurrentVideo, openDeleteConfirmation, sceneInfoOpen, setTvConfig, setGlobalState]);
 
   /* -------------------------------- Subtitles ------------------------------- */
   // Update the subtitles track via the ref object
@@ -838,6 +871,20 @@ const MediaSlide: React.FC<MediaSlideProps> = (props) => {
             playerRef={videojsPlayerRef}
           />
           {deleteConfirmationDialog}
+          {showTagEditor && (
+            <Modal show onHide={() => setShowTagEditor(false)}>
+              <Modal.Header closeButton>
+                <Modal.Title>Edit tags</Modal.Title>
+              </Modal.Header>
+              <Modal.Body>
+                <EditTagSelectionForm
+                  initialTags={mediaItemTags}
+                  save={setMediaItemTags}
+                  cancel={() => setShowTagEditor(false)}
+                />
+              </Modal.Body>
+            </Modal>
+          )}
         </CrtEffect>
       </div>
     </MediaItemStateContextProvider>
