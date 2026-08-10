@@ -584,15 +584,7 @@ const MediaSlide: React.FC<MediaSlideProps> = (props) => {
 
   /* ------------------------------- Scene info ------------------------------- */
 
-  // ? Unlike most other UI states, scene info visibility does not persist
-  // across scenes, and should be reset to false on scrolling to another like.
-
-  const [sceneInfoOpen, setSceneInfoOpen] = useState(false);
   const sceneInfoPanelRef = useRef(null);
-
-  useEffect(() => {
-    if (!isCurrentVideo) setSceneInfoOpen(false);
-  }, [isCurrentVideo]);
 
   /* ---------------------------- Single-key shortcuts -------------------------- */
 
@@ -604,7 +596,8 @@ const MediaSlide: React.FC<MediaSlideProps> = (props) => {
     props.changeItemHandler(props.index, { behavior: "instant" });
   }, [props.changeItemHandler, props.index]);
   const { open: openDeleteConfirmation, dialog: deleteConfirmationDialog } = useDeleteMediaItemDialog(props.mediaItem, handleMediaItemDeleted);
-  const { set: setGlobalState } = useGlobalState();
+  const { set: setGlobalState, sceneInfoOpen } = useGlobalState();
+  const setSceneInfoOpen = useCallback((open: boolean) => setGlobalState("sceneInfoOpen", open), [setGlobalState]);
   const { tags: mediaItemTags, setTags: setMediaItemTags } = useMediaItemTags(props.mediaItem);
   const [showTagEditor, setShowTagEditor] = useState(false);
 
