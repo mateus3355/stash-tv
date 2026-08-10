@@ -6,6 +6,7 @@ import { actionButtonIcons } from "../icons";
 import type { ActionButtonDefinitionInput } from "./index";
 import { useDeleteMediaItemDialog } from "../../../hooks/useDeleteMediaItemDialog";
 import { MediaItem } from "../../../hooks/useMediaItems";
+import cx from "classnames";
 
 const id = "delete-media-item";
 
@@ -37,6 +38,7 @@ export function DeleteMediaItemActionButton({
       state="inactive"
       icon={buttonDefinition.icon}
       title={buttonDefinition.title}
+      className={cx(buttonDefinition.id, "hide-on-ui-hide")}
       onClick={open}
     />
   </>
