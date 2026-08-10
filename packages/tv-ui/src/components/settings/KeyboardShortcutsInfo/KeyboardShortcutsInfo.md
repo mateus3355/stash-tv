@@ -6,3 +6,4 @@
 | Hold down `←` or `→` then tap `↑` or `↓` | Increase or decrease the play/rewind speed |
 | `↓` or `↑` | Go to next/previous media |
 | `c` | Toggle CRT effect |
+| `d` | Delete the current scene/marker (opens the confirmation dialog with Delete focused, so `Enter` confirms) |

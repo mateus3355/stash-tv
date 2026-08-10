@@ -38,6 +38,7 @@ import { TOGGLE_VIDEO_EVENT, PAUSE_VIDEO_EVENT } from "../../../events";
 import { ConfigurationContext } from "stash-ui/dist/src/hooks/Config";
 import { useFirstMountState } from "react-use";
 import { MediaItemStateContextProvider } from "../../../store/mediaItemState";
+import { useDeleteMediaItemDialog } from "../../../hooks/useDeleteMediaItemDialog";
 
 videojs.registerPlugin('styledBigPlayButton', styledBigPlayButton);
 
@@ -589,6 +590,28 @@ const MediaSlide: React.FC<MediaSlideProps> = (props) => {
     if (!isCurrentVideo) setSceneInfoOpen(false);
   }, [isCurrentVideo]);
 
+  /* ---------------------------- Delete shortcut ------------------------------ */
+
+  const { open: openDeleteConfirmation, dialog: deleteConfirmationDialog } = useDeleteMediaItemDialog(props.mediaItem);
+
+  useEffect(() => {
+    if (!isCurrentVideo) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (
+        e.key !== "d"
+        || e.ctrlKey || e.metaKey || e.altKey || e.shiftKey
+        || e.target instanceof HTMLInputElement
+        || e.target instanceof HTMLTextAreaElement
+        || (e.target instanceof HTMLElement && e.target.getAttribute("role") === "slider")
+      ) return;
+      openDeleteConfirmation();
+    }
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [isCurrentVideo, openDeleteConfirmation]);
+
   /* -------------------------------- Subtitles ------------------------------- */
   // Update the subtitles track via the ref object
   useEffect(() => {
@@ -814,6 +837,7 @@ const MediaSlide: React.FC<MediaSlideProps> = (props) => {
             setSceneInfoOpen={setSceneInfoOpen}
             playerRef={videojsPlayerRef}
           />
+          {deleteConfirmationDialog}
         </CrtEffect>
       </div>
     </MediaItemStateContextProvider>
