@@ -596,7 +596,14 @@ const MediaSlide: React.FC<MediaSlideProps> = (props) => {
 
   /* ---------------------------- Single-key shortcuts -------------------------- */
 
-  const { open: openDeleteConfirmation, dialog: deleteConfirmationDialog } = useDeleteMediaItemDialog(props.mediaItem);
+  // Deleting the current item shifts every later item down by one index, so re-pinning to the same index
+  // (rather than leaving currentIndex untouched, or advancing it) is what lands on the next item. If the
+  // deleted item was the last one loaded, this also naturally clamps back to the new last item since there's
+  // nothing further to advance to yet.
+  const handleMediaItemDeleted = useCallback(() => {
+    props.changeItemHandler(props.index, { behavior: "instant" });
+  }, [props.changeItemHandler, props.index]);
+  const { open: openDeleteConfirmation, dialog: deleteConfirmationDialog } = useDeleteMediaItemDialog(props.mediaItem, handleMediaItemDeleted);
   const { set: setGlobalState } = useGlobalState();
   const { tags: mediaItemTags, setTags: setMediaItemTags } = useMediaItemTags(props.mediaItem);
   const [showTagEditor, setShowTagEditor] = useState(false);

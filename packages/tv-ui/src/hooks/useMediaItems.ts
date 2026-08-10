@@ -1,6 +1,6 @@
 import * as GQL from "stash-ui/dist/src/core/generated-graphql";
 import { useMediaItemFilters } from './useMediaItemFilters';
-import { useContext, useEffect, useMemo, useState } from "react";
+import { useContext, useEffect, useMemo, useRef, useState } from "react";
 import { getMediaItemIdForVideoJsPlayer } from "../helpers";
 import { useTvConfig } from "../store/tvConfig";
 import hashObject from 'object-hash';
@@ -117,8 +117,12 @@ export function useMediaItems() {
     logger.debug("lastLoadedCurrentMediaItemFilter:", lastLoadedCurrentMediaItemFilter)
     throw new Error("Unsupported media item filter entity type")
   }
+  // Tracks how many pages have actually been fetched for the current filter, independently of mediaItems.length,
+  // since that length shrinks whenever an item is deleted and would otherwise throw off the next page number.
+  const nextPageToFetchRef = useRef(2)
   useEffect(() => {
     logger.debug(`lastLoadedCurrentMediaItemFilter changed to "${lastLoadedCurrentMediaItemFilter?.savedFilter?.name}", resetting media items`)
+    nextPageToFetchRef.current = 2
   }, [lastLoadedCurrentMediaItemFilter])
 
 
@@ -277,7 +281,8 @@ export function useMediaItems() {
   return {
     mediaItems,
     loadMoreMediaItems: () => {
-      const nextPage = mediaItems.length ? Math.ceil(mediaItems.length / mediaItemsPerPage) + 1 : 1
+      const nextPage = nextPageToFetchRef.current
+      nextPageToFetchRef.current += 1
       logger.debug("Fetch next media page: {*}", {nextPage})
       let entityFilterKey: string
       if (lastLoadedCurrentMediaItemFilter?.entityType === "scene") {

@@ -24,7 +24,7 @@ function focusDeleteButtonWhenReady() {
   return () => cancelAnimationFrame(frame);
 }
 
-export function useDeleteMediaItemDialog(mediaItem: MediaItem) {
+export function useDeleteMediaItemDialog(mediaItem: MediaItem, onDeleted?: () => void) {
   const [isOpen, setIsOpen] = useState(false);
   const open = useCallback(() => setIsOpen(true), []);
 
@@ -33,20 +33,25 @@ export function useDeleteMediaItemDialog(mediaItem: MediaItem) {
     return focusDeleteButtonWhenReady();
   }, [isOpen]);
 
+  const handleClose = useCallback((confirmed: boolean) => {
+    setIsOpen(false);
+    if (confirmed) onDeleted?.();
+  }, [onDeleted]);
+
   let dialog: JSX.Element | null = null;
   if (isOpen) {
     if (mediaItem.entityType === "scene") {
       dialog = (
         <DeleteScenesDialog
           selected={[mediaItem.entity as unknown as GQL.SlimSceneDataFragment]}
-          onClose={() => setIsOpen(false)}
+          onClose={handleClose}
         />
       );
     } else if (mediaItem.entityType === "marker") {
       dialog = (
         <DeleteSceneMarkersDialog
           selected={[mediaItem.entity as unknown as GQL.SceneMarkerDataFragment]}
-          onClose={() => setIsOpen(false)}
+          onClose={handleClose}
         />
       );
     } else {

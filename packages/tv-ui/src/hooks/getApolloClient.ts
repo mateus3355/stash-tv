@@ -86,17 +86,18 @@ export function getApolloClient() {
     const oldModify = newCache.modify
     newCache.modify = (firstArg, ...otherArgs) => {
         const {fields = {}} = firstArg as {fields: Modifiers}
-        if ('findScenes' in fields && typeof fields.findScenes === 'function') {
-            const originalModFn = fields.findScenes
-            fields.findScenes = (...modFnArgs) => {
-                const [originalValue, { DELETE }] = modFnArgs
-                const result = originalModFn(...modFnArgs);
-                if (result === DELETE) {
-                    return originalValue
+        for (const fieldName of ['findScenes', 'findSceneMarkers'] as const) {
+            if (fieldName in fields && typeof fields[fieldName] === 'function') {
+                const originalModFn = fields[fieldName]
+                fields[fieldName] = (...modFnArgs) => {
+                    const [originalValue, { DELETE }] = modFnArgs
+                    const result = originalModFn(...modFnArgs);
+                    if (result === DELETE) {
+                        return originalValue
+                    }
+                    return result
                 }
-                return result
             }
-
         }
         // @ts-expect-error - We're doing a fairly hacking thing here by wrapping the modify function but we're trying
         // to avoid modifying the source of stash's ui.
