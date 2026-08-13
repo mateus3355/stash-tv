@@ -16,6 +16,7 @@ const meta = {
     isForceLandscape: true,
     isMuted: true,
     changeItemHandler: fn(),
+    removeMediaItem: fn(),
     loopOnEnd: false,
     scene: {
       date: "2021-02-18",

@@ -52,6 +52,7 @@ const noAnimateDurationThreshold = 30;
 export interface MediaSlideProps {
   mediaItem: MediaItem;
   changeItemHandler: ((newIndex: number | ((currentIndex: number) => number), scrollOptions?: ScrollToIndexOptions) => void);
+  removeMediaItem: (id: string) => void;
   isCurrentVideo: boolean;
   index: number;
   style?: React.CSSProperties | undefined;
@@ -593,8 +594,9 @@ const MediaSlide: React.FC<MediaSlideProps> = (props) => {
   // deleted item was the last one loaded, this also naturally clamps back to the new last item since there's
   // nothing further to advance to yet.
   const handleMediaItemDeleted = useCallback(() => {
+    props.removeMediaItem(props.mediaItem.id);
     props.changeItemHandler(props.index, { behavior: "instant" });
-  }, [props.changeItemHandler, props.index]);
+  }, [props.removeMediaItem, props.mediaItem.id, props.changeItemHandler, props.index]);
   const { open: openDeleteConfirmation, dialog: deleteConfirmationDialog } = useDeleteMediaItemDialog(props.mediaItem, handleMediaItemDeleted);
   const { set: setGlobalState, sceneInfoOpen } = useGlobalState();
   const setSceneInfoOpen = useCallback((open: boolean) => setGlobalState("sceneInfoOpen", open), [setGlobalState]);
@@ -869,6 +871,7 @@ const MediaSlide: React.FC<MediaSlideProps> = (props) => {
             sceneInfoOpen={sceneInfoOpen}
             setSceneInfoOpen={setSceneInfoOpen}
             playerRef={videojsPlayerRef}
+            onMediaItemDeleted={handleMediaItemDeleted}
           />
           {deleteConfirmationDialog}
           {showTagEditor && (

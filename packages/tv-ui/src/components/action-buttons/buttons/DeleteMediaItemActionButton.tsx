@@ -26,11 +26,13 @@ export const buttonDefinition = {
 } as const satisfies ActionButtonDefinitionInput;
 
 export function DeleteMediaItemActionButton({
-    mediaItem
+    mediaItem,
+    onMediaItemDeleted,
 }: {
-    mediaItem: MediaItem
+    mediaItem: MediaItem,
+    onMediaItemDeleted?: () => void,
 }) {
-  const { open, dialog } = useDeleteMediaItemDialog(mediaItem);
+  const { open, dialog } = useDeleteMediaItemDialog(mediaItem, onMediaItemDeleted);
 
   return <>
     {dialog}

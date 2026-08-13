@@ -38,7 +38,7 @@ const VideoScroller: React.FC<VideoScrollerProps> = memo(() => {
   /* ------------------------ Handle loading new videos ----------------------- */
 
 
-  const { mediaItems, loadMoreMediaItems } = useMediaItems();
+  const { mediaItems, loadMoreMediaItems, removeMediaItem } = useMediaItems();
 
   const estimateSizeTesterElement = useRef<HTMLDivElement | null>(null);
   useEffect(() => {
@@ -119,6 +119,17 @@ const VideoScroller: React.FC<VideoScrollerProps> = memo(() => {
   * */
   const currentIndexRef = useRef(currentIndex);
 
+  // Read via a ref rather than a useMemo dependency so the throttle instance below stays stable across
+  // mediaItems.length changes -- recreating throttleit's returned closure resets its internal cooldown/pending
+  // timer state, and since deletions now change mediaItems.length far more often (see useMediaItems.ts's
+  // accumulator), that was orphaning in-flight throttled index updates: a still-pending call from the old
+  // closure could fire later and clamp/overwrite currentIndex against a stale bound, making rapid scrolling
+  // appear to silently stop responding shortly after a delete.
+  const mediaItemsLengthRef = useRef(mediaItems.length);
+  useEffect(() => {
+    mediaItemsLengthRef.current = mediaItems.length
+  }, [mediaItems.length]);
+
   const setCurrentIndex = useMemo(
     () => {
       const throttledSetCurrentIndex = throttle((newIndex: number) => {
@@ -129,13 +140,13 @@ const VideoScroller: React.FC<VideoScrollerProps> = memo(() => {
         currentIndexRef.current = clamp(
           0,
           typeof newIndex === 'function' ? newIndex(currentIndexRef.current) : newIndex,
-          mediaItems.length ? mediaItems.length - 1 : 0
+          mediaItemsLengthRef.current ? mediaItemsLengthRef.current - 1 : 0
         );
 
         return throttledSetCurrentIndex(currentIndexRef.current);
       })
     },
-    [rowVirtualizer, mediaItems.length]
+    [rowVirtualizer]
   );
 
   const scrollSnappingReenableTimeoutRef = useRef<NodeJS.Timeout | undefined>();
@@ -442,6 +453,7 @@ const VideoScroller: React.FC<VideoScrollerProps> = memo(() => {
           return (
             <MediaSlide
               changeItemHandler={changeItemHandler}
+              removeMediaItem={removeMediaItem}
               isCurrentVideo={i === currentIndex}
               index={i}
               key={hashObject([mediaItem.id, scenePreviewOnly, markerPreviewOnly])}

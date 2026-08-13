@@ -1,12 +1,13 @@
 import * as GQL from "stash-ui/dist/src/core/generated-graphql";
 import { useMediaItemFilters } from './useMediaItemFilters';
-import { useContext, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useContext, useEffect, useMemo, useState } from "react";
 import { getMediaItemIdForVideoJsPlayer } from "../helpers";
 import { useTvConfig } from "../store/tvConfig";
 import hashObject from 'object-hash';
 import { getLogger } from "@logtape/logtape";
 import { getFunctionFromString } from "../helpers/getFunctionFromString";
 import { ConfigurationContext } from "stash-ui/dist/src/hooks/Config";
+import { create } from "zustand";
 
 export type MediaItem = {
   id: string;
@@ -32,6 +33,52 @@ declare global {
 
 export const defaultMarkerLength = 20;
 
+// useMediaItems() is called from multiple independent components (FeedPage, SettingsTab, VideoScroller), each
+// of which needs to see the same accumulated list -- a per-hook-instance-local accumulator would let those
+// diverge (e.g. VideoScroller's own copy correctly losing an item on delete while FeedPage's separate copy
+// keeps growing untouched), which is exactly what happened when this was a useRef/useState pair local to each
+// call site. Keeping it in a module-level store instead means every instance reads and writes the same state.
+//
+// Pagination itself is also handled entirely here rather than via Apollo's own field-level merge/cache
+// accumulation (previously done with a custom keyArgs/merge policy in getApolloClient.ts): that accumulated
+// cache value proved unreliable under mutation races (e.g. deleting a scene while another scene's watch-time/
+// view-count mutation -- fired automatically just from normal scrolling -- is still in flight) in ways that
+// were never fully pinned down despite multiple attempted fixes at the Apollo cache layer, occasionally
+// causing the query's own reported item count to silently stop growing even though further pages kept being
+// requested. loadMoreMediaItems() now reads each page directly from fetchMore()'s own returned promise instead
+// of from the query's `data`, and getApolloClient.ts's findScenes/findSceneMarkers fields are back to Apollo's
+// default (unmerged, keyed by all variables including page) policy -- each page fetch is now a fully
+// independent, one-shot operation whose result we merge into our own store ourselves.
+type MediaItemsAccumulatorState = {
+  items: Map<string, MediaItem>;
+  // How many pages *beyond* the always-loaded first page have been successfully fetched for the current
+  // filter, so loadMoreMediaItems() knows which page to fetch next. This only advances on a completed
+  // fetchMore() response, never merely on the number of times loadMoreMediaItems() was called or on
+  // items.size (both of those are, respectively, prone to duplicate calls and driven down by deletions).
+  pagesLoadedBeyondFirst: number;
+  fetchMoreInFlight: boolean;
+}
+const useMediaItemsAccumulatorStore = create<MediaItemsAccumulatorState>(() => ({
+  items: new Map(),
+  pagesLoadedBeyondFirst: 0,
+  fetchMoreInFlight: false,
+}))
+
+function mergeMediaItemsIntoStore(newPageItems: MediaItem[]) {
+  const state = useMediaItemsAccumulatorStore.getState()
+  let changed = false
+  const newItems = new Map(state.items)
+  for (const item of newPageItems) {
+    if (newItems.get(item.id) !== item) {
+      newItems.set(item.id, item)
+      changed = true
+    }
+  }
+  if (changed) {
+    useMediaItemsAccumulatorStore.setState({ items: newItems })
+  }
+}
+
 export function useMediaItems() {
   const logger = getLogger(["stash-tv", "useMediaItems"]);
   const { lastLoadedCurrentMediaItemFilter } = useMediaItemFilters()
@@ -51,8 +98,30 @@ export function useMediaItems() {
 
   const [ neverLoaded, setNeverLoaded ] = useState(true)
 
+  function mapMarker(marker: GQL.FindSceneMarkersForTvQuery["findSceneMarkers"]["scene_markers"][number]): MediaItem {
+    return {
+      id: `marker:${marker.id}`,
+      entityType: "marker" as const,
+      entity: {
+        ...marker,
+        get duration() {
+          const endTime = marker.end_seconds ?? Math.min(marker.seconds + defaultMarkerLength, marker.scene.files[0].duration);
+          return endTime - marker.seconds;
+        }
+      }
+    }
+  }
+  function markerIsValid(marker: GQL.FindSceneMarkersForTvQuery["findSceneMarkers"]["scene_markers"][number]): boolean {
+    if (marker.seconds > marker.scene.files[0].duration) {
+      logger.warn(`Marker with ID ${marker.id} has start time (${marker.seconds}s) greater than scene duration (${marker.scene.files[0].duration}s). This marker will be skipped.`, {marker})
+      return false
+    }
+    return true
+  }
+
   let response
-  let mediaItems: MediaItem[]
+  let apolloMediaItems: MediaItem[]
+  let loadMoreMediaItemsImpl: () => Promise<void>
   if (!lastLoadedCurrentMediaItemFilter || lastLoadedCurrentMediaItemFilter.entityType === "scene") {
     const scenesResponse = GQL.useFindFullScenesQuery({
       variables: {
@@ -66,7 +135,7 @@ export function useMediaItems() {
       },
       skip: !lastLoadedCurrentMediaItemFilter,
     })
-    mediaItems = useMemo(
+    apolloMediaItems = useMemo(
       () => scenesResponse.data?.findScenes.scenes.map(scene => ({
         id: `scene:${scene.id}`,
         entityType: "scene" as const,
@@ -75,6 +144,35 @@ export function useMediaItems() {
       [scenesResponse.data?.findScenes.scenes]
     )
     response = scenesResponse
+
+    const { fetchMore } = scenesResponse
+    const generalFilter = lastLoadedCurrentMediaItemFilter?.generalFilter
+    const entityFilter = lastLoadedCurrentMediaItemFilter?.entityFilter
+    loadMoreMediaItemsImpl = async () => {
+      const state = useMediaItemsAccumulatorStore.getState()
+      if (state.fetchMoreInFlight) return;
+      const nextPage = state.pagesLoadedBeyondFirst + 2
+      logger.debug("Fetch next media page: {*}", {nextPage})
+      useMediaItemsAccumulatorStore.setState({ fetchMoreInFlight: true })
+      try {
+        const result = await fetchMore({
+          variables: {
+            filter: { ...generalFilter, page: nextPage, per_page: mediaItemsPerPage },
+            scene_filter: entityFilter,
+          }
+        })
+        const newPageItems: MediaItem[] = (result.data?.findScenes.scenes ?? []).map(scene => ({
+          id: `scene:${scene.id}`,
+          entityType: "scene" as const,
+          entity: scene,
+        }))
+        mergeMediaItemsIntoStore(newPageItems)
+        useMediaItemsAccumulatorStore.setState(s => ({ pagesLoadedBeyondFirst: s.pagesLoadedBeyondFirst + 1, fetchMoreInFlight: false }))
+      } catch (error) {
+        logger.error("Failed to fetch next media page", { error })
+        useMediaItemsAccumulatorStore.setState({ fetchMoreInFlight: false })
+      }
+    }
 
   } else if (lastLoadedCurrentMediaItemFilter.entityType === "marker") {
     const markersResponse = GQL.useFindSceneMarkersForTvQuery({
@@ -89,41 +187,72 @@ export function useMediaItems() {
       },
     })
 
-    mediaItems = useMemo(
+    apolloMediaItems = useMemo(
       () => markersResponse.data?.findSceneMarkers.scene_markers
-        .filter(marker => {
-          if (marker.seconds > marker.scene.files[0].duration) {
-            logger.warn(`Marker with ID ${marker.id} has start time (${marker.seconds}s) greater than scene duration (${marker.scene.files[0].duration}s). This marker will be skipped.`, {marker})
-            return false
-          }
-          return true
-        })
-        .map(marker => ({
-          id: `marker:${marker.id}`,
-          entityType: "marker" as const,
-          entity: {
-            ...marker,
-            get duration() {
-              const endTime = marker.end_seconds ?? Math.min(marker.seconds + defaultMarkerLength, marker.scene.files[0].duration);
-              return endTime - marker.seconds;
-            }
-          }
-        }))
+        .filter(markerIsValid)
+        .map(mapMarker)
         || [],
       [markersResponse.data?.findSceneMarkers.scene_markers]
     )
     response = markersResponse
+
+    const { fetchMore } = markersResponse
+    const generalFilter = lastLoadedCurrentMediaItemFilter.generalFilter
+    const entityFilter = lastLoadedCurrentMediaItemFilter.entityFilter
+    loadMoreMediaItemsImpl = async () => {
+      const state = useMediaItemsAccumulatorStore.getState()
+      if (state.fetchMoreInFlight) return;
+      const nextPage = state.pagesLoadedBeyondFirst + 2
+      logger.debug("Fetch next media page: {*}", {nextPage})
+      useMediaItemsAccumulatorStore.setState({ fetchMoreInFlight: true })
+      try {
+        const result = await fetchMore({
+          variables: {
+            filter: { ...generalFilter, page: nextPage, per_page: mediaItemsPerPage },
+            scene_marker_filter: entityFilter,
+          }
+        })
+        const newPageItems: MediaItem[] = (result.data?.findSceneMarkers.scene_markers ?? [])
+          .filter(markerIsValid)
+          .map(mapMarker)
+        mergeMediaItemsIntoStore(newPageItems)
+        useMediaItemsAccumulatorStore.setState(s => ({ pagesLoadedBeyondFirst: s.pagesLoadedBeyondFirst + 1, fetchMoreInFlight: false }))
+      } catch (error) {
+        logger.error("Failed to fetch next media page", { error })
+        useMediaItemsAccumulatorStore.setState({ fetchMoreInFlight: false })
+      }
+    }
   } else {
     logger.debug("lastLoadedCurrentMediaItemFilter:", lastLoadedCurrentMediaItemFilter)
     throw new Error("Unsupported media item filter entity type")
   }
-  // Tracks how many pages have actually been fetched for the current filter, independently of mediaItems.length,
-  // since that length shrinks whenever an item is deleted and would otherwise throw off the next page number.
-  const nextPageToFetchRef = useRef(2)
+  // apolloMediaItems here only ever reflects page 1 (see the two branches above) -- it's kept as an active,
+  // watched query for reactivity (e.g. picking up tag/metadata changes on currently-visible items) and as the
+  // initial page of data, not for pagination.
+  const accumulatorItems = useMediaItemsAccumulatorStore(s => s.items)
+
   useEffect(() => {
     logger.debug(`lastLoadedCurrentMediaItemFilter changed to "${lastLoadedCurrentMediaItemFilter?.savedFilter?.name}", resetting media items`)
-    nextPageToFetchRef.current = 2
+    useMediaItemsAccumulatorStore.setState({ items: new Map(), pagesLoadedBeyondFirst: 0, fetchMoreInFlight: false })
   }, [lastLoadedCurrentMediaItemFilter])
+
+  useEffect(() => {
+    if (apolloMediaItems.length === 0) return;
+    mergeMediaItemsIntoStore(apolloMediaItems)
+  }, [apolloMediaItems])
+
+  const removeMediaItem = useCallback((id: string) => {
+    const state = useMediaItemsAccumulatorStore.getState()
+    if (!state.items.has(id)) return;
+    const newItems = new Map(state.items)
+    newItems.delete(id)
+    useMediaItemsAccumulatorStore.setState({ items: newItems })
+  }, [])
+
+  let mediaItems: MediaItem[] = useMemo(
+    () => Array.from(accumulatorItems.values()),
+    [accumulatorItems]
+  )
 
 
   useEffect(() => {
@@ -154,7 +283,6 @@ export function useMediaItems() {
   }, [mediaItems])
 
   const {
-    fetchMore,
     error: mediaItemsError,
     loading: mediaItemsLoading,
   } = response
@@ -280,30 +408,8 @@ export function useMediaItems() {
 
   return {
     mediaItems,
-    loadMoreMediaItems: () => {
-      const nextPage = nextPageToFetchRef.current
-      nextPageToFetchRef.current += 1
-      logger.debug("Fetch next media page: {*}", {nextPage})
-      let entityFilterKey: string
-      if (lastLoadedCurrentMediaItemFilter?.entityType === "scene") {
-        entityFilterKey = "scene_filter"
-      } else if (lastLoadedCurrentMediaItemFilter?.entityType === "marker") {
-        entityFilterKey = "scene_marker_filter"
-      } else {
-        throw new Error("Unsupported media filter entity type")
-      }
-      fetchMore({
-        variables: {
-          filter: {
-            ...lastLoadedCurrentMediaItemFilter?.generalFilter,
-            // We manage pagination ourselves and so override whatever the saved filter had
-            page: nextPage,
-            per_page: mediaItemsPerPage,
-          },
-          [entityFilterKey]: lastLoadedCurrentMediaItemFilter?.entityFilter
-        }
-      })
-    },
+    removeMediaItem,
+    loadMoreMediaItems: loadMoreMediaItemsImpl,
     mediaItemsError,
     mediaItemsLoading,
     mediaItemsNeverLoaded: neverLoaded,

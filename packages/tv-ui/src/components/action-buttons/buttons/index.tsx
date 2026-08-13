@@ -30,6 +30,7 @@ type ActionButtonProps = {
   playerRef: React.RefObject<VideoJsPlayer>,
   sceneInfoOpen: boolean,
   setSceneInfoOpen: (open: boolean) => void,
+  onMediaItemDeleted?: () => void,
 }
 
 export type ActionButtonDefinitionInput<Config extends Record<string, unknown> = Record<string, unknown>> = {
