@@ -6,7 +6,7 @@ import { useEffect } from "react";
 // viewport meta tag to be reapplied resets the scale back to initial-scale=1. We also nudge the
 // `container: viewport / size` containment box on <html> (used by ActionButtonStack's
 // @container aspect-ratio query) in case that's independently stuck at a stale size.
-export function usePhysicalRotationFix() {
+export function useBrowserZoomResetOnViewportChange() {
   useEffect(() => {
     const viewportMeta = document.querySelector<HTMLMetaElement>('meta[name="viewport"]');
     const originalViewportContent = viewportMeta?.getAttribute("content") ?? null;
