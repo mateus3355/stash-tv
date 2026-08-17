@@ -41,7 +41,7 @@ import { MediaItemStateContextProvider } from "../../../store/mediaItemState";
 import { useDeleteMediaItemDialog } from "../../../hooks/useDeleteMediaItemDialog";
 import { useGlobalState } from "../../../store/globalState";
 import { useMediaItemTags } from "../../../hooks/useMediaItemTags";
-import { EditTagSelectionForm } from "../../EditTagSelectionForm";
+import { EditTagsContents } from "../../EditTagsContents";
 import { Modal } from "../../containers/Modal";
 
 videojs.registerPlugin('styledBigPlayButton', styledBigPlayButton);
@@ -600,7 +600,7 @@ const MediaSlide: React.FC<MediaSlideProps> = (props) => {
   const { open: openDeleteConfirmation, dialog: deleteConfirmationDialog } = useDeleteMediaItemDialog(props.mediaItem, handleMediaItemDeleted);
   const { set: setGlobalState, sceneInfoOpen } = useGlobalState();
   const setSceneInfoOpen = useCallback((open: boolean) => setGlobalState("sceneInfoOpen", open), [setGlobalState]);
-  const { tags: mediaItemTags, setTags: setMediaItemTags } = useMediaItemTags(props.mediaItem);
+  const { tags: mediaItemTags, primaryTag: mediaItemPrimaryTag, setTags: setMediaItemTags } = useMediaItemTags(props.mediaItem);
   const [showTagEditor, setShowTagEditor] = useState(false);
 
   useEffect(() => {
@@ -880,8 +880,9 @@ const MediaSlide: React.FC<MediaSlideProps> = (props) => {
                 <Modal.Title>Edit tags</Modal.Title>
               </Modal.Header>
               <Modal.Body>
-                <EditTagSelectionForm
+                <EditTagsContents
                   initialTags={mediaItemTags}
+                  primaryTag={mediaItemPrimaryTag}
                   save={setMediaItemTags}
                   cancel={() => setShowTagEditor(false)}
                 />

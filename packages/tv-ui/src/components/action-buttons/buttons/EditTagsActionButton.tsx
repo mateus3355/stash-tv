@@ -8,7 +8,7 @@ import type { ActionButtonDefinitionInput } from "./index";
 import cx from "classnames";
 import { useMediaItemTags } from "../../../hooks/useMediaItemTags";
 import { MediaItem } from "../../../hooks/useMediaItems";
-import { EditTagSelectionForm } from "../../EditTagSelectionForm";
+import { EditTagsContents } from "../../EditTagsContents";
 import { getLogger } from "@logtape/logtape";
 import { useFormik } from "formik";
 import { Form } from "react-bootstrap";
@@ -59,17 +59,13 @@ export function EditTagsActionButton({
     icon={buttonDefinition.icon}
     title={buttonDefinition.title}
     className={cx(buttonDefinition.id, "hide-on-ui-hide")}
-    sidePanel={({close}) => <>
-      <EditTagSelectionForm
-        initialTags={tags}
-        pinnedTagIds={pinnedTagIds}
-        save={setTags}
-        cancel={close}
-      />
-      {primaryTag && <div className="primary-tag-note">
-        Marker's primary tag is "{primaryTag.name}".
-      </div>}
-    </>}
+    sidePanel={({close}) => <EditTagsContents
+      initialTags={tags}
+      pinnedTagIds={pinnedTagIds}
+      primaryTag={primaryTag}
+      save={setTags}
+      cancel={close}
+    />}
     sidePanelClassName="action-button-side-panel-edit-tags"
     data-testid="MediaSlide--editTagsButton"
   />
