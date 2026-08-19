@@ -1,6 +1,14 @@
 import { getLogger } from "@logtape/logtape";
 import videojs, { VideoJsPlayer } from "video.js";
-import testVideo from '../../../assets/1x1_10bit.mp4?url';
+import UAParser from "ua-parser-js";
+import testVideo from '../../../assets/1x1_10bit.webm?url';
+
+// How long we're willing to wait for the hidden probe video below to produce a frame before giving up. This is a
+// belt-and-braces backstop, not the primary defence - see the comment on `testFor10BitSupport()` for why the probe
+// clip is VP9 rather than HEVC. Without this bound, a probe that never produces a frame would wedge
+// `supports10BitVideos` forever, which in turn wedges every future call to `unloadAfterPaused()` below (since they
+// all await it) - meaning paused videos would never actually get their sources cleared.
+const tenBitSupportTestTimeoutMs = 3000
 
 let supports10BitVideos: Promise<boolean> | undefined = undefined
 
@@ -209,9 +217,44 @@ videojs.hooks('beforeerror', ((player: VideoJsPlayer, error: unknown) => {
 
 function testFor10BitSupport() {
   // Firefox has a bug for drawImage() with 10-bit videos https://bugzilla.mozilla.org/show_bug.cgi?id=2021540
-  return new Promise<boolean>((resolve, reject) => {
+  //
+  // The bug this works around is Firefox-specific, so we only pay the cost of actually decoding the test clip below
+  // on Firefox. On other browsers we assume support without probing.
+  //
+  // The probe clip is deliberately encoded as VP9 (profile 2, 10-bit)
+  // countering possible Firefox bug for decoding HEVC video - https://bugzilla.mozilla.org/show_bug.cgi?id=2064734
+  if (!UAParser().browser.name?.includes("Firefox")) {
+    return Promise.resolve(true)
+  }
 
+  return new Promise<boolean>((resolve) => {
     const video = document.createElement('video');
+    let settled = false
+
+    const settle = (result: boolean) => {
+      if (settled) return
+      settled = true
+      clearTimeout(timeoutId)
+      video.removeEventListener('error', onError)
+      // Clear the source so a stuck/still-decoding probe doesn't hang on to decoder resources indefinitely.
+      video.src = ''
+      video.load()
+      resolve(result)
+    }
+
+    const onError = () => {
+      logger.warn("10-bit support test video failed to load, assuming unsupported");
+      settle(false)
+    }
+
+    // If the decoder never produces a frame (e.g. a flaky/broken hardware HEVC decode path) fall back to assuming
+    // unsupported rather than hanging forever.
+    const timeoutId = setTimeout(() => {
+      logger.warn(`10-bit support test timed out after ${tenBitSupportTestTimeoutMs}ms, assuming unsupported`);
+      settle(false)
+    }, tenBitSupportTestTimeoutMs)
+
+    video.addEventListener('error', onError)
     video.src = testVideo
     video.load()
     video.requestVideoFrameCallback(() => {
@@ -221,7 +264,9 @@ function testFor10BitSupport() {
 
       const ctx = canvas.getContext('2d');
       if (!ctx) {
-        throw new Error("Failed to get canvas")
+        logger.warn("Failed to get canvas context for 10-bit support test, assuming unsupported");
+        settle(false)
+        return
       }
       ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
 
@@ -229,8 +274,8 @@ function testFor10BitSupport() {
       const centerY = Math.floor(canvas.height / 2);
 
       const pixelData = ctx.getImageData(centerX, centerY, 1, 1).data;
-      const [r, g, b, a] = pixelData;
-      resolve(r > 200 && g < 50 && b < 50)
+      const [r, g, b] = pixelData;
+      settle(r > 200 && g < 50 && b < 50)
     })
   })
 }
