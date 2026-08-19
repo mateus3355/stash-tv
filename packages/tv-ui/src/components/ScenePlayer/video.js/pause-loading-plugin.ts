@@ -221,12 +221,8 @@ function testFor10BitSupport() {
   // The bug this works around is Firefox-specific, so we only pay the cost of actually decoding the test clip below
   // on Firefox. On other browsers we assume support without probing.
   //
-  // The probe clip is deliberately encoded as VP9 (profile 2, 10-bit), not HEVC. It used to be HEVC, but on systems
-  // where Firefox's HEVC hardware decode path is broken (a real, observed issue with Firefox + certain NVIDIA driver
-  // combos on Windows via the Microsoft HEVC Video Extension) decoding this probe was enough to send the browser's
-  // GPU process into a runaway that breaks video playback browser-wide - triggered by nothing more than us silently
-  // checking a rendering quirk in the background. VP9 exercises the same 10-bit drawImage() path without going
-  // anywhere near that decoder, so swap the codec back only if you're sure it can't reintroduce that failure mode.
+  // The probe clip is deliberately encoded as VP9 (profile 2, 10-bit)
+  // countering possible Firefox bug for decoding HEVC video - https://bugzilla.mozilla.org/show_bug.cgi?id=2064734
   if (!UAParser().browser.name?.includes("Firefox")) {
     return Promise.resolve(true)
   }
