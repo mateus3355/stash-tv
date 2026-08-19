@@ -38,6 +38,11 @@ import { TOGGLE_VIDEO_EVENT, PAUSE_VIDEO_EVENT } from "../../../events";
 import { ConfigurationContext } from "stash-ui/dist/src/hooks/Config";
 import { useFirstMountState } from "react-use";
 import { MediaItemStateContextProvider } from "../../../store/mediaItemState";
+import { useDeleteMediaItemDialog } from "../../../hooks/useDeleteMediaItemDialog";
+import { useGlobalState } from "../../../store/globalState";
+import { useMediaItemTags } from "../../../hooks/useMediaItemTags";
+import { EditTagsContents } from "../../EditTagsContents";
+import { Modal } from "../../containers/Modal";
 
 videojs.registerPlugin('styledBigPlayButton', styledBigPlayButton);
 
@@ -47,6 +52,7 @@ const noAnimateDurationThreshold = 30;
 export interface MediaSlideProps {
   mediaItem: MediaItem;
   changeItemHandler: ((newIndex: number | ((currentIndex: number) => number), scrollOptions?: ScrollToIndexOptions) => void);
+  removeMediaItem: (id: string) => void;
   isCurrentVideo: boolean;
   index: number;
   style?: React.CSSProperties | undefined;
@@ -106,6 +112,13 @@ const MediaSlide: React.FC<MediaSlideProps> = (props) => {
   const scene = props.mediaItem.entityType === "scene" ? props.mediaItem.entity : props.mediaItem.entity.scene;
 
   const getMediaItemDuration = () => props.mediaItem.entityType === "marker" ? props.mediaItem.entity.duration : props.mediaItem.entity.files[0]?.duration;
+
+  // Stash itself has a "maximum loop duration" setting: videos shorter than it auto-loop regardless of our own
+  // loop toggle. Respect that alongside our own setting whenever it's set to something other than 0 (disabled).
+  const maximumLoopDuration = stashConfig?.interface.maximumLoopDuration ?? 0;
+  const mediaItemDuration = getMediaItemDuration();
+  const stashAutoLoop = maximumLoopDuration > 0 && !!mediaItemDuration && mediaItemDuration < maximumLoopDuration;
+  const effectiveLooping = looping || stashAutoLoop;
 
   // Don't return player if it's disposed
   const videojsPlayerRef = useGetterRef<VideoJsPlayer | null>(
@@ -214,7 +227,7 @@ const MediaSlide: React.FC<MediaSlideProps> = (props) => {
   }, [getMediaItemDuration()])
 
   useEffect(() => {
-    if (!looping || props.mediaItem.entityType !== "marker" || !videojsPlayerRef.current) return;
+    if (!effectiveLooping || props.mediaItem.entityType !== "marker" || !videojsPlayerRef.current) return;
     // videojs-offset doesn't seem to respect loop so we have to manually restart video after it's ended
     // when loop is true
     const handleEnded = () => {
@@ -225,7 +238,7 @@ const MediaSlide: React.FC<MediaSlideProps> = (props) => {
     }
     videojsPlayerRef.current?.on('ended', handleEnded);
     return () => { videojsPlayerRef.current?.off('ended', handleEnded) };
-  }, [looping])
+  }, [effectiveLooping])
 
   /* ------------------------------- Play/pause ------------------------------- */
 
@@ -275,12 +288,12 @@ const MediaSlide: React.FC<MediaSlideProps> = (props) => {
 
       return (initialTimestamp || 0) + Math.floor(Math.random() * (effectiveMaxPlayLength - effectiveMinPlayLength + 1)) + effectiveMinPlayLength
     } else if (endPosition === 'video-end') {
-      return looping ? duration : undefined;
+      return effectiveLooping ? duration : undefined;
     } else {
       endPosition satisfies never
       return undefined;
     }
-  }, [endPosition, initialTimestamp, minPlayLength, maxPlayLength, playLength, getMediaItemDuration(), scenePreviewOnly, looping]);
+  }, [endPosition, initialTimestamp, minPlayLength, maxPlayLength, playLength, getMediaItemDuration(), scenePreviewOnly, effectiveLooping]);
 
   useEffect(() => {
     logger.info(`Initial timestamp: ${initialTimestamp}, End timestamp: ${endTimestamp}`, {initialTimestamp, endTimestamp})
@@ -363,7 +376,7 @@ const MediaSlide: React.FC<MediaSlideProps> = (props) => {
       // Go to next item if we'd be jumping over the end timestamp
       (endTimestamp !== undefined && currentTime <= endTimestamp && nextSkipAheadTime >= endTimestamp)
     ){
-      if (looping) {
+      if (effectiveLooping) {
         // If looping then just go back to the initial timestamp or start since going to the end would do that anyway
         nextSkipAheadTime = initialTimestamp || 0
       } else {
@@ -374,7 +387,7 @@ const MediaSlide: React.FC<MediaSlideProps> = (props) => {
     videojsPlayerRef.current?.currentTime(nextSkipAheadTime)
     setCurrentlyPlayingMarkers(findCurrentlyPlayingMarkers(nextSkipAheadTime))
     videojsPlayerRef.current?.play()
-  }, [getSkipTime, initialTimestamp, endTimestamp, looping]);
+  }, [getSkipTime, initialTimestamp, endTimestamp, effectiveLooping]);
 
   const seekBackwards = useCallback(() => {
     if (!videojsPlayerRef.current) return null;
@@ -387,13 +400,13 @@ const MediaSlide: React.FC<MediaSlideProps> = (props) => {
     let nextSkipBackTime = currentTime - skipAmount
     logger.info("Seeking backwards{*}", {skipAmount, duration, nextSkipBackTime})
     // If looping and we'd be going before the initial timestamp go to the initial timestamp
-    if (looping && initialTimestamp !== undefined && currentTime >= initialTimestamp && nextSkipBackTime < initialTimestamp) {
+    if (effectiveLooping && initialTimestamp !== undefined && currentTime >= initialTimestamp && nextSkipBackTime < initialTimestamp) {
       nextSkipBackTime = initialTimestamp || 0
     // Go to previous item if the next jump goes to or past the start of the video
     } else if (nextSkipBackTime < 0) {
       // If looping or not already at the start (with 2 second grace period to avoid play immediately moving beyond the
       // start and thus preventing us from ever going back further) then go to the start
-      if (looping || currentTime > 2) {
+      if (effectiveLooping || currentTime > 2) {
         nextSkipBackTime = 0
       } else if (props.index === 0) {
         // If there's no previous video to go back to just go to the start of this one
@@ -406,7 +419,7 @@ const MediaSlide: React.FC<MediaSlideProps> = (props) => {
     videojsPlayerRef.current?.currentTime(nextSkipBackTime)
     setCurrentlyPlayingMarkers(findCurrentlyPlayingMarkers(nextSkipBackTime))
     videojsPlayerRef.current?.play()
-  }, [getSkipTime, props.index, goToItem, looping]);
+  }, [getSkipTime, props.index, goToItem, effectiveLooping]);
 
   const {textSelectionWorkaroundElm, seek, toDiscreteSeekSpeed} = useGestureControls({
     videoRef,
@@ -414,7 +427,7 @@ const MediaSlide: React.FC<MediaSlideProps> = (props) => {
     seekForwards,
     seekBackwards,
     logger,
-    looping,
+    looping: effectiveLooping,
     initialTimestamp,
     endTimestamp,
   })
@@ -569,7 +582,7 @@ const MediaSlide: React.FC<MediaSlideProps> = (props) => {
   /** Handle the event fired at the end of video playback. */
   const handleOnEnded = () => {
     // If not looping on end, scroll to the next item.
-    if (looping) return
+    if (effectiveLooping) return
     videojsPlayerRef.current?.pause()
     if (isCurrentVideo) {
       videojsPlayerRef.current?.currentTime(initialTimestamp || 0);
@@ -579,15 +592,67 @@ const MediaSlide: React.FC<MediaSlideProps> = (props) => {
 
   /* ------------------------------- Scene info ------------------------------- */
 
-  // ? Unlike most other UI states, scene info visibility does not persist
-  // across scenes, and should be reset to false on scrolling to another like.
-
-  const [sceneInfoOpen, setSceneInfoOpen] = useState(false);
   const sceneInfoPanelRef = useRef(null);
 
+  /* ---------------------------- Single-key shortcuts -------------------------- */
+
+  // Deleting the current item shifts every later item down by one index, so re-pinning to the same index
+  // (rather than leaving currentIndex untouched, or advancing it) is what lands on the next item. If the
+  // deleted item was the last one loaded, this also naturally clamps back to the new last item since there's
+  // nothing further to advance to yet.
+  const handleMediaItemDeleted = useCallback(() => {
+    props.removeMediaItem(props.mediaItem.id);
+    props.changeItemHandler(props.index, { behavior: "instant" });
+  }, [props.removeMediaItem, props.mediaItem.id, props.changeItemHandler, props.index]);
+  const { open: openDeleteConfirmation, dialog: deleteConfirmationDialog } = useDeleteMediaItemDialog(props.mediaItem, handleMediaItemDeleted);
+  const { set: setGlobalState, sceneInfoOpen } = useGlobalState();
+  const setSceneInfoOpen = useCallback((open: boolean) => setGlobalState("sceneInfoOpen", open), [setGlobalState]);
+  const { tags: mediaItemTags, primaryTag: mediaItemPrimaryTag, setTags: setMediaItemTags } = useMediaItemTags(props.mediaItem);
+  const [showTagEditor, setShowTagEditor] = useState(false);
+
   useEffect(() => {
-    if (!isCurrentVideo) setSceneInfoOpen(false);
-  }, [isCurrentVideo]);
+    if (!isCurrentVideo) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (
+        e.ctrlKey || e.metaKey || e.altKey || e.shiftKey
+        || e.target instanceof HTMLInputElement
+        || e.target instanceof HTMLTextAreaElement
+        || (e.target instanceof HTMLElement && e.target.getAttribute("role") === "slider")
+      ) return;
+      switch (e.key) {
+        case "d":
+          openDeleteConfirmation();
+          break;
+        case "i":
+          setSceneInfoOpen(!sceneInfoOpen);
+          break;
+        case "e":
+          setShowTagEditor(true);
+          break;
+        case "m":
+          setTvConfig("volume", (prev) => prev ? 0 : 1);
+          break;
+        case "o":
+          setTvConfig("forceLandscape", (prev) => !prev);
+          break;
+        case "l":
+          setTvConfig("looping", (prev) => !prev);
+          break;
+        case "s":
+          setTvConfig("showSubtitles", (prev) => !prev);
+          break;
+        case "f":
+          setGlobalState("fullscreen", (prev) => !prev);
+          break;
+        default:
+          return;
+      }
+    }
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [isCurrentVideo, openDeleteConfirmation, sceneInfoOpen, setTvConfig, setGlobalState]);
 
   /* -------------------------------- Subtitles ------------------------------- */
   // Update the subtitles track via the ref object
@@ -621,13 +686,13 @@ const MediaSlide: React.FC<MediaSlideProps> = (props) => {
       pauseAfterLooping: false,
       pauseBeforeLooping: false,
       ...(videojsPlayerRef.current?.abLoopPlugin?.getOptions() ?? {}),
-      enabled: looping,
+      enabled: effectiveLooping,
       start: initialTimestamp ?? false,
       end: endTimestamp ?? false,
     }
     logger.debug(`Setting AB loop plugin options{*}`, {options});
     videojsPlayerRef.current?.abLoopPlugin.setOptions(options);
-  }, [looping, playerReady, initialTimestamp, endTimestamp])
+  }, [effectiveLooping, playerReady, initialTimestamp, endTimestamp])
 
   // Track what marker (if any) is currently playing
   const findCurrentlyPlayingMarkers = (currentTime: number) => {
@@ -742,7 +807,7 @@ const MediaSlide: React.FC<MediaSlideProps> = (props) => {
             volume={volume}
             playbackRate={playbackRate}
             autoplay={autoplay}
-            loop={looping}
+            loop={effectiveLooping}
             initialTimestamp={initialTimestamp}
             sendSetTimestamp={() => {}}
             onNext={() => {}}
@@ -794,7 +859,7 @@ const MediaSlide: React.FC<MediaSlideProps> = (props) => {
             textSelectionWorkaroundElm,
             videojsPlayerRef.current?.el()
           )}
-          {looping && initialTimestamp !== undefined && videoJsProgressControlElm && createPortal(
+          {effectiveLooping && initialTimestamp !== undefined && videoJsProgressControlElm && createPortal(
             <ClipTimestamp type="start" progressPercentage={(initialTimestamp / (videojsPlayerRef.current?.duration() || 1)) * 100} />,
             videoJsProgressControlElm
           )}
@@ -813,7 +878,24 @@ const MediaSlide: React.FC<MediaSlideProps> = (props) => {
             sceneInfoOpen={sceneInfoOpen}
             setSceneInfoOpen={setSceneInfoOpen}
             playerRef={videojsPlayerRef}
+            onMediaItemDeleted={handleMediaItemDeleted}
           />
+          {deleteConfirmationDialog}
+          {showTagEditor && (
+            <Modal show onHide={() => setShowTagEditor(false)}>
+              <Modal.Header closeButton>
+                <Modal.Title>Edit tags</Modal.Title>
+              </Modal.Header>
+              <Modal.Body>
+                <EditTagsContents
+                  initialTags={mediaItemTags}
+                  primaryTag={mediaItemPrimaryTag}
+                  save={setMediaItemTags}
+                  cancel={() => setShowTagEditor(false)}
+                />
+              </Modal.Body>
+            </Modal>
+          )}
         </CrtEffect>
       </div>
     </MediaItemStateContextProvider>

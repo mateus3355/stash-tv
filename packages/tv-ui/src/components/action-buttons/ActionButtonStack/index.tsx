@@ -32,9 +32,10 @@ export type Props = {
   sceneInfoOpen: boolean;
   setSceneInfoOpen: (open: boolean) => void;
   playerRef: React.RefObject<VideoJsPlayer>;
+  onMediaItemDeleted?: () => void;
 }
 
-export function ActionButtonStack({mediaItem, sceneInfoOpen, setSceneInfoOpen, playerRef}: Props) {
+export function ActionButtonStack({mediaItem, sceneInfoOpen, setSceneInfoOpen, playerRef, onMediaItemDeleted}: Props) {
   const {
     uiVisible,
     leftHandedUi,
@@ -64,6 +65,7 @@ export function ActionButtonStack({mediaItem, sceneInfoOpen, setSceneInfoOpen, p
         playerRef={playerRef}
         sceneInfoOpen={sceneInfoOpen}
         setSceneInfoOpen={setSceneInfoOpen}
+        onMediaItemDeleted={onMediaItemDeleted}
       />
     )
   }

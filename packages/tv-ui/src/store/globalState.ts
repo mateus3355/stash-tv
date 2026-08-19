@@ -8,6 +8,7 @@ export const globalStateStorageKey = 'app-state';
 type GlobalState = {
   showSettings: boolean;
   fullscreen: boolean;
+  sceneInfoOpen: boolean;
   tvConfigLoaded: boolean;
 }
 
@@ -21,6 +22,7 @@ type GlobalStateActions = {
 const defaults = {
   showSettings: false,
   fullscreen: false,
+  sceneInfoOpen: false,
   tvConfigLoaded: false,
 } satisfies GlobalState;
 

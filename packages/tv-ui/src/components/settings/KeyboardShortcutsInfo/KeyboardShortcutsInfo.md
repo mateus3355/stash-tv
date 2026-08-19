@@ -6,3 +6,11 @@
 | Hold down `←` or `→` then tap `↑` or `↓` | Increase or decrease the play/rewind speed |
 | `↓` or `↑` | Go to next/previous media |
 | `c` | Toggle CRT effect |
+| `d` | Delete the current scene/marker (opens the confirmation dialog with Delete focused, so `Enter` confirms) |
+| `e` | Edit scene/marker tags |
+| `f` | Toggle fullscreen |
+| `i` | Toggle scene info |
+| `l` | Toggle looping the scene |
+| `m` | Mute/unmute |
+| `o` | Toggle forced landscape orientation |
+| `s` | Toggle subtitles |

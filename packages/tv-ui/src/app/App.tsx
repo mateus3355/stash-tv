@@ -4,6 +4,7 @@ import { useTvConfig } from "../store/tvConfig";
 import * as GQL from "stash-ui/dist/src/core/generated-graphql";
 import {ConfigurationProvider} from "stash-ui/dist/src/hooks/Config";
 import { useViewportRotate } from "../hooks/useViewportRotate";
+import { useBrowserZoomResetOnViewportChange } from "../hooks/useBrowserZoomResetOnViewportChange";
 import { ErrorBoundary } from "stash-ui/dist/src/components/ErrorBoundary";
 import { IntlProvider, CustomFormats } from "react-intl";
 import englishMessages from "stash-ui/dist/src/locales/en-GB.json";
@@ -35,6 +36,7 @@ const App = () => {
   } as GQL.ConfigurationQuery["configuration"];
 
   useViewportRotate(forceLandscape);
+  useBrowserZoomResetOnViewportChange();
 
   // We only support English for now but we have to load IntlProvider so we don't break
   // components imported from stash-ui that rely on it.

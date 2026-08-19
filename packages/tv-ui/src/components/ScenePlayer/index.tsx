@@ -72,6 +72,10 @@ videojs.hook('beforesetup', function(videoEl, options) {
             doubleClick: false
         },
         inactivityTimeout: 5000,
+        // The browser's native hover PiP icon (independent of video.js's own control bar, which
+        // already excludes pictureInPictureToggle) interferes with Stash TV's own menu overlay and
+        // has no use for this plugin.
+        disablePictureInPicture: true,
         controlBar: {
             children: [
                 'progressControl',

@@ -1,16 +1,12 @@
-import React, { useState } from "react"
+import React from "react"
 import * as yup from "yup";
 import ActionButtonBase from "../ActionButtonBase";
 import { sharedActionButtonSchema } from "../action-button-config";
 import { actionButtonIcons } from "../icons";
 import type { ActionButtonDefinitionInput } from "./index";
-import { DeleteScenesDialog } from "stash-ui/dist/src/components/Scenes/DeleteScenesDialog";
-import { DeleteSceneMarkersDialog } from "stash-ui/dist/src/components/Scenes/DeleteSceneMarkersDialog";
-import * as GQL from "stash-ui/dist/src/core/generated-graphql";
-import { getLogger } from "@logtape/logtape";
+import { useDeleteMediaItemDialog } from "../../../hooks/useDeleteMediaItemDialog";
 import { MediaItem } from "../../../hooks/useMediaItems";
-
-const logger = getLogger(["stash-tv", "DeleteMediaItemActionButton"])
+import cx from "classnames";
 
 const id = "delete-media-item";
 
@@ -30,42 +26,22 @@ export const buttonDefinition = {
 } as const satisfies ActionButtonDefinitionInput;
 
 export function DeleteMediaItemActionButton({
-    mediaItem
+    mediaItem,
+    onMediaItemDeleted,
 }: {
-    mediaItem: MediaItem
+    mediaItem: MediaItem,
+    onMediaItemDeleted?: () => void,
 }) {
-  const [showDeleteConfirmation, setShowDeleteConfirmation] = useState(false);
+  const { open, dialog } = useDeleteMediaItemDialog(mediaItem, onMediaItemDeleted);
 
-  const handleClick = () => {
-    setShowDeleteConfirmation(true);
-  }
-  let renderDialog
-  if (mediaItem.entityType === "scene") {
-    renderDialog = () => (
-      <DeleteScenesDialog
-        selected={[mediaItem.entity as unknown as GQL.SlimSceneDataFragment]}
-        onClose={() => setShowDeleteConfirmation(false)}
-      />
-    )
-  } else if (mediaItem.entityType === "marker") {
-    renderDialog = () => (
-      <DeleteSceneMarkersDialog
-        selected={[mediaItem.entity as unknown as GQL.SceneMarkerDataFragment]}
-        onClose={() => setShowDeleteConfirmation(false)}
-      />
-    )
-  } else {
-    mediaItem satisfies never
-    logger.error("DeleteMediaItemActionButton rendered for unsupported media item type", {mediaItem})
-    return null
-  }
   return <>
-    {showDeleteConfirmation && renderDialog()}
+    {dialog}
     <ActionButtonBase
       state="inactive"
       icon={buttonDefinition.icon}
       title={buttonDefinition.title}
-      onClick={handleClick}
+      className={cx(buttonDefinition.id, "hide-on-ui-hide")}
+      onClick={open}
     />
   </>
 }
